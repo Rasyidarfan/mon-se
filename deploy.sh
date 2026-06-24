@@ -56,10 +56,14 @@ fi
 
 # 3) Tulis ulang path require pada SALINAN PHP di public_html:
 #      '/../lib/  ->  '/../mon-se/lib/   (idempoten)
-while IFS= read -r -d '' f; do
+#    Pakai glob langsung (bukan process substitution) agar kompatibel di semua
+#    shell hosting — process substitution butuh /dev/fd yang kadang tidak ada.
+shopt -s nullglob
+for f in "$DEST"/*.php; do
   grep -q "/\.\./mon-se/lib/" "$f" && continue
   sed -i.bak "s#/\.\./lib/#/../mon-se/lib/#g" "$f" && rm -f "$f.bak"
-done < <(find "$DEST" -maxdepth 1 -name "*.php" -print0)
+done
+shopt -u nullglob
 
 echo "✓ Selesai. Akses: https://mon-se.bps9702.com/"
 echo "  lib/ & data/ tetap privat di $SRC_ROOT"
