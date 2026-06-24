@@ -2,21 +2,22 @@
 #
 # deploy.sh — Salin isi mon-se/public ke public_html agar bisa diakses publik.
 #
-# Struktur hosting (public_html & mon-se SEJAJAR di home):
-#   ~/
-#   ├── public_html/      <- document root (https://mon-se.bps9702.com/)
-#   └── mon-se/           <- repo ini
-#       ├── lib/          <- TIDAK disalin (tetap di luar web root, lebih aman)
-#       ├── data/         <- TIDAK disalin (DB & PIN tetap privat)
-#       └── public/       <- isinya disalin ke public_html/
+# Layout hosting (mon-se & public_html SEJAJAR di dalam folder domain):
+#   ~/mon-se.bps9702.com/
+#   ├── mon-se/           <- repo ini (git pull di sini)
+#   │   ├── lib/          <- TIDAK disalin (tetap di luar web root, lebih aman)
+#   │   ├── data/         <- TIDAK disalin (DB & PIN tetap privat)
+#   │   └── public/       <- isinya disalin ke public_html/
+#   └── public_html/      <- document root (https://mon-se.bps9702.com/)
 #
 # File PHP di public memanggil  __DIR__ . '/../lib/helpers.php'.
-# Setelah berada di public_html/, '../lib' akan keliru menunjuk ke ~/lib,
-# jadi skrip ini menulis ulang path tersebut menjadi '/../mon-se/lib/'
-# ( public_html/../mon-se/lib  =  ~/mon-se/lib  ✔ ) pada SALINANNYA saja —
-# berkas sumber di repo tidak diubah.
+# Setelah berada di public_html/, '../lib' menunjuk ke folder domain (salah),
+# jadi skrip menulis ulang menjadi '/../mon-se/lib/' pada SALINAN saja:
+#   public_html/../mon-se/lib  =  ~/mon-se.bps9702.com/mon-se/lib  ✔
 #
-# Jalankan dari dalam folder mon-se (via SSH / cPanel Terminal):
+# Jalankan via SSH / cPanel Terminal, dari dalam folder mon-se:
+#   cd ~/mon-se.bps9702.com/mon-se
+#   git pull
 #   bash deploy.sh
 #
 set -euo pipefail
@@ -25,8 +26,7 @@ set -euo pipefail
 SRC_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC_PUB="$SRC_ROOT/public"
 
-# Tentukan public_html (sejajar dengan mon-se). Bisa di-override:
-#   DEST=/jalur/lain bash deploy.sh
+# public_html sejajar dengan mon-se. Bisa di-override: DEST=/jalur bash deploy.sh
 DEST="${DEST:-$(dirname "$SRC_ROOT")/public_html}"
 
 if [[ ! -d "$SRC_PUB" ]]; then
@@ -38,25 +38,28 @@ mkdir -p "$DEST"
 echo "→ Sumber : $SRC_PUB"
 echo "→ Tujuan : $DEST"
 
-# Salin isi public/ (termasuk assets/) ke public_html/.
-# rsync bila tersedia (hapus file usang via --delete-after, tapi JANGAN sentuh
-# berkas non-app di public_html mis. .well-known, cgi-bin).
+# 1) Bersihkan sisa file app lama di public_html (mis. dari salin manual yang
+#    keliru: lib/, data/, public/, README.md, server.sh, default.php).
+#    File milik hosting TIDAK disentuh (.htaccess, cgi-bin, .well-known, dll).
+echo "→ Membersihkan file app lama di public_html…"
+rm -rf "$DEST/lib" "$DEST/data" "$DEST/public"
+rm -f  "$DEST/README.md" "$DEST/server.sh" "$DEST/deploy.sh" "$DEST/default.php"
+rm -f  "$DEST/index.php" "$DEST/input.php" "$DEST/export.php" "$DEST/petugas.php"
+rm -rf "$DEST/assets"
+
+# 2) Salin isi public/ (termasuk assets/) ke public_html/.
 if command -v rsync >/dev/null 2>&1; then
   rsync -a "$SRC_PUB"/ "$DEST"/
 else
   cp -R "$SRC_PUB"/. "$DEST"/
 fi
 
-# Tulis ulang path require pada SALINAN PHP di public_html:
-#   '/../lib/  ->  '/../mon-se/lib/
-# Idempoten: kalau sudah '/../mon-se/lib/' tidak akan dobel.
+# 3) Tulis ulang path require pada SALINAN PHP di public_html:
+#      '/../lib/  ->  '/../mon-se/lib/   (idempoten)
 while IFS= read -r -d '' f; do
-  # lewati yang sudah benar
-  if grep -q "/\.\./mon-se/lib/" "$f"; then
-    continue
-  fi
+  grep -q "/\.\./mon-se/lib/" "$f" && continue
   sed -i.bak "s#/\.\./lib/#/../mon-se/lib/#g" "$f" && rm -f "$f.bak"
 done < <(find "$DEST" -maxdepth 1 -name "*.php" -print0)
 
-echo "✓ Selesai. Aplikasi siap diakses di document root (mis. https://mon-se.bps9702.com/)."
-echo "  lib/ & data/ tetap di $SRC_ROOT (di luar web root)."
+echo "✓ Selesai. Akses: https://mon-se.bps9702.com/"
+echo "  lib/ & data/ tetap privat di $SRC_ROOT"
