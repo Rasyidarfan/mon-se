@@ -26,7 +26,9 @@ Homestead.json
 Homestead.yaml
 Thumbs.db
 
-# SQLite transient & backup files (basis data utama tetap di-commit)
+# Basis data SQLite TIDAK di-track: tiap server/lokal punya datanya sendiri.
+# Skema dibangun & dimigrasi otomatis oleh lib/db.php (atau migrate.sh saat deploy).
+/data/*.sqlite
 /data/*.sqlite-shm
 /data/*.sqlite-wal
 /data/*.sqlite.bak-*
