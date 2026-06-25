@@ -31,3 +31,7 @@ Thumbs.db
 /data/*.sqlite-wal
 /data/*.sqlite.bak-*
 /.claude/settings.local.json
+
+# Foto plang yang diunggah petugas — privat, tidak ikut repo (folder dijaga via .gitkeep)
+/data/uploads/*
+!/data/uploads/.gitkeep

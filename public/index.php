@@ -98,6 +98,8 @@ echo layout_head('Dashboard Progres', true);
   </div>
   <div class="spacer"></div>
   <a class="btn ghost" href="/input.php?kab=<?= e($kab) ?>">+ Input Progres</a>
+  <a class="btn ghost" href="/rekap-catatan.php<?= $kab ? '?kab=' . e($kab) : '' ?>">📝 Rekap Catatan</a>
+  <a class="btn ghost" href="/galeri.php<?= $kab ? '?kab=' . e($kab) : '' ?>">📷 Galeri Plang</a>
   <a class="btn ghost" href="/export.php<?= $kab ? '?kab=' . e($kab) . ($kec ? '&kec=' . e($kec) : '') : '' ?>">⬇ CSV</a>
   <?= theme_toggle() ?>
 </header>

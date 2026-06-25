@@ -68,6 +68,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'hapus
     }
 }
 
+// --- Upload foto plang (butuh PIN) ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'upload_foto') {
+    $pin = trim((string) ($_POST['pin'] ?? ''));
+    if (!hash_equals(PETUGAS_PIN, $pin)) {
+        $flash = ['err', 'PIN salah. Foto tidak diunggah.'];
+    } else {
+        $res = simpan_foto_plang($kab, $nama, $_FILES['foto'] ?? []);
+        if ($res['saved'] > 0 && !$res['errors']) {
+            $flash = ['ok', $res['saved'] . ' foto plang berhasil diunggah.'];
+        } elseif ($res['saved'] > 0) {
+            $flash = ['ok', $res['saved'] . ' foto diunggah. ' . implode(' ', $res['errors'])];
+        } else {
+            $flash = ['err', implode(' ', $res['errors']) ?: 'Tidak ada foto yang diunggah.'];
+        }
+    }
+}
+
+// --- Hapus satu foto plang (butuh PIN) ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'hapus_foto') {
+    $pin = trim((string) ($_POST['pin'] ?? ''));
+    if (!hash_equals(PETUGAS_PIN, $pin)) {
+        $flash = ['err', 'PIN salah. Foto tidak dihapus.'];
+    } else {
+        $ok = hapus_foto_plang((int) ($_POST['foto_id'] ?? 0), $kab, $nama);
+        $flash = $ok ? ['ok', 'Foto dihapus.'] : ['err', 'Foto tidak ditemukan.'];
+    }
+}
+
 $wilayah  = wilayah_petugas($kab, $nama);
 $colKeys  = array_keys(PROGRES_COLS);
 
@@ -85,6 +113,10 @@ $email    = $wilayah[0]['email_pencacah'] ?? '';
 $catatan     = get_catatan($kab, $nama);
 $catKendala  = $catatan ? (json_decode((string) $catatan['kendala'], true) ?: []) : [];
 $catHistory  = catatan_history($kab, $nama);
+
+// Foto plang petugas
+$fotoList  = foto_petugas($kab, $nama);
+$fotoSisa  = FOTO_MAX_PER_PETUGAS - count($fotoList);
 
 // Grafik harian (tren per tanggal) untuk petugas ini — ambil SEMUA tanggal,
 // switch "5 / Semua" memotong di sisi klien.
@@ -311,9 +343,82 @@ echo layout_head('Form Petugas', true);
       </div>
     </div>
   </div>
+
+  <div class="card">
+    <h2>📷 Foto Plang (Bukti Sampai Lokasi)</h2>
+    <p class="hint">
+      Unggah foto plang/papan nama wilayah sebagai bukti telah sampai di lokasi tugas.
+      Maksimal <?= (int) FOTO_MAX_PER_PETUGAS ?> foto · JPG/PNG/WebP · maks <?= (int) round(FOTO_MAX_BYTES / 1048576) ?> MB/foto.
+      Tersimpan: <strong><?= count($fotoList) ?>/<?= (int) FOTO_MAX_PER_PETUGAS ?></strong>.
+    </p>
+
+    <?php if ($fotoList): ?>
+      <div class="foto-grid">
+        <?php foreach ($fotoList as $fp): ?>
+          <figure class="foto-cell">
+            <a href="/foto.php?f=<?= e(urlencode($fp['file'])) ?>" target="_blank" rel="noopener">
+              <img src="/foto.php?f=<?= e(urlencode($fp['file'])) ?>" alt="Foto plang"
+                   loading="lazy"
+                   <?= (int) $fp['w'] > 0 ? 'width="' . (int) $fp['w'] . '" height="' . (int) $fp['h'] . '"' : '' ?>>
+            </a>
+            <figcaption>
+              <span class="meta muted"><?= e($fp['created_at']) ?></span>
+              <details class="cat-del">
+                <summary title="Hapus foto ini">🗑</summary>
+                <form method="post" action="/petugas.php" class="cat-del-form"
+                      onsubmit="return confirm('Hapus foto ini? Tindakan tidak dapat dibatalkan.')">
+                  <input type="hidden" name="action" value="hapus_foto">
+                  <input type="hidden" name="kab" value="<?= e($kab) ?>">
+                  <input type="hidden" name="nama" value="<?= e($nama) ?>">
+                  <input type="hidden" name="foto_id" value="<?= (int) $fp['id'] ?>">
+                  <input type="password" name="pin" placeholder="PIN" required autocomplete="off">
+                  <button class="btn danger" type="submit">Hapus</button>
+                </form>
+              </details>
+            </figcaption>
+          </figure>
+        <?php endforeach; ?>
+      </div>
+    <?php endif; ?>
+
+    <?php if ($fotoSisa > 0): ?>
+      <form method="post" action="/petugas.php" enctype="multipart/form-data" id="frmFoto" style="margin-top:14px">
+        <input type="hidden" name="action" value="upload_foto">
+        <input type="hidden" name="kab" value="<?= e($kab) ?>">
+        <input type="hidden" name="nama" value="<?= e($nama) ?>">
+
+        <div class="field">
+          <label>Pilih foto (bisa <?= (int) $fotoSisa ?> lagi)</label>
+          <input type="file" name="foto[]" id="fotoInput" accept="image/jpeg,image/png,image/webp" multiple>
+          <small class="muted" id="fotoHint">Bisa pilih beberapa sekaligus. Sisa kuota: <?= (int) $fotoSisa ?>.</small>
+        </div>
+
+        <div class="sticky-save">
+          <div style="max-width:200px">
+            <input type="password" name="pin" placeholder="Masukkan PIN" required autocomplete="off">
+          </div>
+          <div class="spacer"></div>
+          <button class="btn" type="submit">⬆ Unggah Foto</button>
+        </div>
+      </form>
+    <?php else: ?>
+      <p class="muted" style="font-size:13px;margin-top:12px">
+        Kuota foto sudah penuh (<?= (int) FOTO_MAX_PER_PETUGAS ?>/<?= (int) FOTO_MAX_PER_PETUGAS ?>). Hapus salah satu foto untuk mengganti.
+      </p>
+    <?php endif; ?>
+  </div>
 </div>
 
 <style>
+  /* Foto plang: masonry per kolom, pertahankan aspek rasio */
+  .foto-grid{columns:4 200px;column-gap:12px}
+  .foto-cell{margin:0 0 12px;break-inside:avoid;border:1px solid var(--border,#3a3a3a);
+    border-radius:10px;overflow:hidden;background:var(--card,transparent)}
+  .foto-cell img{display:block;width:100%;height:auto}
+  .foto-cell figcaption{display:flex;align-items:center;justify-content:space-between;gap:8px;
+    padding:6px 8px;font-size:11px}
+  #frmFoto input[type="file"]{font-size:13px}
+
   /* Catatan: 2 kolom 8:4 (form : riwayat) */
   .cat-layout{display:grid;grid-template-columns:8fr 4fr;gap:18px;align-items:start}
   .cat-form textarea{width:100%;box-sizing:border-box}
@@ -382,6 +487,24 @@ echo layout_head('Form Petugas', true);
   if (!cb || !txt) return;
   function sync() { txt.style.display = cb.checked ? '' : 'none'; if (!cb.checked) txt.value = ''; }
   cb.addEventListener('change', sync);
+})();
+
+// Batasi jumlah foto sesuai sisa kuota (sisi klien; server tetap menegakkan)
+(function () {
+  var inp  = document.getElementById('fotoInput');
+  var hint = document.getElementById('fotoHint');
+  if (!inp) return;
+  var sisa = <?= (int) $fotoSisa ?>;
+  inp.addEventListener('change', function () {
+    if (inp.files.length > sisa) {
+      alert('Maksimal ' + sisa + ' foto lagi. Pilihan dibatalkan, silakan pilih ulang.');
+      inp.value = '';
+      return;
+    }
+    if (hint) hint.textContent = inp.files.length
+      ? (inp.files.length + ' foto dipilih (sisa kuota: ' + sisa + ').')
+      : ('Bisa pilih beberapa sekaligus. Sisa kuota: ' + sisa + '.');
+  });
 })();
 
 // Grafik harian petugas (Chart.js) + switch 5 / Semua tanggal

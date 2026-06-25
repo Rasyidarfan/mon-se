@@ -122,6 +122,23 @@ function init_schema(PDO $pdo): void
         )
     SQL);
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_catatanhist_petugas ON catatan_hist(kdkab, nama_pencacah, created_at)');
+
+    // Foto plang sebagai bukti petugas sudah sampai di lokasi tugas.
+    // 1 baris = 1 foto. File fisik disimpan di data/uploads/ (privat), kolom
+    // `file` hanya menyimpan nama berkasnya. Maks FOTO_MAX_PER_PETUGAS per petugas
+    // ditegakkan di lapisan aplikasi (lihat simpan_foto_plang()).
+    $pdo->exec(<<<SQL
+        CREATE TABLE IF NOT EXISTS foto_plang (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            kdkab         TEXT NOT NULL,
+            nama_pencacah TEXT NOT NULL,
+            file          TEXT NOT NULL,
+            w             INTEGER NOT NULL DEFAULT 0,
+            h             INTEGER NOT NULL DEFAULT 0,
+            created_at    TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        )
+    SQL);
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_foto_petugas ON foto_plang(kdkab, nama_pencacah)');
 }
 
 /**

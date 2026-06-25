@@ -54,6 +54,17 @@ const TIMESERIES_COLS = [
 // Jumlah snapshot tanggal terakhir yang disimpan untuk grafik timeseries
 const HIST_MAX = 5;
 
+// Foto plang (bukti sampai di lokasi tugas)
+const UPLOAD_DIR          = __DIR__ . '/../data/uploads'; // privat, di luar web root; tahan deploy
+const FOTO_MAX_PER_PETUGAS = 5;                            // batas foto per petugas
+const FOTO_MAX_BYTES       = 6 * 1024 * 1024;             // 6 MB per file
+// Tipe gambar yang diterima: mime => ekstensi
+const FOTO_MIME_EXT = [
+    'image/jpeg' => 'jpg',
+    'image/png'  => 'png',
+    'image/webp' => 'webp',
+];
+
 // Pilihan kendala (checkbox) pada card Catatan Petugas: kunci => label.
 // Kunci 'lainnya' disertai input teks bebas.
 const KENDALA_OPTS = [

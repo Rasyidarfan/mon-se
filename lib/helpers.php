@@ -2,7 +2,7 @@
 declare(strict_types=1);
 require_once __DIR__ . '/db.php';
 
-function e(?string $s): string
+function e(int|string|null $s): string
 {
     return htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8');
 }
@@ -32,6 +32,47 @@ function list_pencacah(string $kdkab): array
     );
     $stmt->execute([':k' => $kdkab]);
     return $stmt->fetchAll();
+}
+
+/**
+ * Daftar pencacah pada satu kabupaten beserta kecamatan & desa tempat tugasnya.
+ * Untuk filter berjenjang (kecamatan → desa → petugas) di sisi klien.
+ *
+ * @return array Tiap baris: [
+ *   'nama' => string, 'jml' => int (jumlah SLS),
+ *   'kec'  => [['kode' => kdkec, 'nama' => nmkec], ...],   // kecamatan unik petugas
+ *   'desa' => [['kec' => kdkec, 'kode' => kddesa, 'nama' => nmdesa], ...] // desa unik
+ * ]
+ */
+function pencacah_berjenjang(string $kdkab): array
+{
+    $stmt = db()->prepare(
+        'SELECT nama_pencacah, kdkec, nmkec, kddesa, nmdesa
+         FROM wilayah
+         WHERE kdkab = :k AND nama_pencacah <> ""
+         ORDER BY nama_pencacah, nmkec, nmdesa'
+    );
+    $stmt->execute([':k' => $kdkab]);
+
+    $out = [];
+    foreach ($stmt->fetchAll() as $r) {
+        $nm = $r['nama_pencacah'];
+        if (!isset($out[$nm])) {
+            $out[$nm] = ['nama' => $nm, 'jml' => 0, 'kec' => [], 'desa' => []];
+        }
+        $out[$nm]['jml']++;
+        $kecKey = $r['kdkec'];
+        $out[$nm]['kec'][$kecKey]  = ['kode' => $r['kdkec'], 'nama' => $r['nmkec']];
+        $desaKey = $r['kdkec'] . '|' . $r['kddesa'];
+        $out[$nm]['desa'][$desaKey] = ['kec' => $r['kdkec'], 'kode' => $r['kddesa'], 'nama' => $r['nmdesa']];
+    }
+
+    // Buang kunci asosiatif agar rapi untuk JSON (array index).
+    return array_map(function ($p) {
+        $p['kec']  = array_values($p['kec']);
+        $p['desa'] = array_values($p['desa']);
+        return $p;
+    }, array_values($out));
 }
 
 /** Semua SLS tugas seorang pencacah di satu kabupaten, beserta progresnya. */
@@ -417,6 +458,221 @@ function simpan_catatan(string $kdkab, string $nama, array $kendala, string $ken
         ':k' => $kdkab, ':n' => $nama, ':kd' => $kendalaJson,
         ':kl' => $kendalaLain, ':rtl' => $rtl, ':cat' => $catatan,
     ]);
+}
+
+/**
+ * Rekap riwayat catatan SEMUA petugas, dikelompokkan per tanggal (terbaru di atas).
+ * Setiap entri pada catatan_hist menjadi satu baris; dikelompokkan berdasarkan
+ * tanggal (bagian date dari created_at).
+ *
+ * @param array $f Filter opsional: ['kab' => kode] untuk membatasi ke satu kabupaten,
+ *                 ['tgl' => 'YYYY-MM-DD'] untuk membatasi ke satu tanggal.
+ * @return array Daftar grup: [['tanggal' => 'YYYY-MM-DD', 'items' => [baris catatan_hist + nmkab]], ...]
+ *               urut tanggal menurun, item dalam grup urut waktu menurun.
+ */
+function rekap_catatan(array $f = []): array
+{
+    $where = "1=1";
+    $params = [];
+    if (!empty($f['kab'])) { $where .= ' AND ch.kdkab = :kab'; $params[':kab'] = $f['kab']; }
+    if (!empty($f['tgl'])) { $where .= " AND date(ch.created_at) = :tgl"; $params[':tgl'] = $f['tgl']; }
+
+    // Nama kabupaten diambil lewat subquery agar tidak bergantung pada keberadaan
+    // wilayah tertentu; catatan_hist menyimpan kdkab langsung.
+    $stmt = db()->prepare(
+        "SELECT ch.*,
+                date(ch.created_at) AS tanggal,
+                (SELECT nmkab FROM wilayah w WHERE w.kdkab = ch.kdkab LIMIT 1) AS nmkab
+         FROM catatan_hist ch
+         WHERE $where
+         ORDER BY ch.created_at DESC, ch.id DESC"
+    );
+    $stmt->execute($params);
+
+    $groups = [];
+    foreach ($stmt->fetchAll() as $r) {
+        $groups[$r['tanggal']][] = $r;
+    }
+
+    $out = [];
+    foreach ($groups as $tanggal => $items) {
+        $out[] = ['tanggal' => $tanggal, 'items' => $items];
+    }
+    return $out;
+}
+
+/** Daftar tanggal (YYYY-MM-DD) yang memiliki riwayat catatan, terbaru di atas. */
+function tanggal_catatan(array $f = []): array
+{
+    $where = "1=1";
+    $params = [];
+    if (!empty($f['kab'])) { $where .= ' AND kdkab = :kab'; $params[':kab'] = $f['kab']; }
+
+    $stmt = db()->prepare(
+        "SELECT DISTINCT date(created_at) AS tanggal
+         FROM catatan_hist WHERE $where
+         ORDER BY tanggal DESC"
+    );
+    $stmt->execute($params);
+    return array_map(fn($r) => $r['tanggal'], $stmt->fetchAll());
+}
+
+/* ============================================================
+ * Foto Plang (bukti petugas sudah sampai di lokasi tugas)
+ * ============================================================ */
+
+/** Foto plang milik satu petugas, terbaru di atas. */
+function foto_petugas(string $kdkab, string $nama): array
+{
+    $stmt = db()->prepare(
+        'SELECT * FROM foto_plang WHERE kdkab = :k AND nama_pencacah = :n
+         ORDER BY created_at DESC, id DESC'
+    );
+    $stmt->execute([':k' => $kdkab, ':n' => $nama]);
+    return $stmt->fetchAll();
+}
+
+/** Jumlah foto plang milik satu petugas. */
+function foto_petugas_count(string $kdkab, string $nama): int
+{
+    $stmt = db()->prepare(
+        'SELECT COUNT(*) FROM foto_plang WHERE kdkab = :k AND nama_pencacah = :n'
+    );
+    $stmt->execute([':k' => $kdkab, ':n' => $nama]);
+    return (int) $stmt->fetchColumn();
+}
+
+/**
+ * Semua foto plang (untuk galeri dashboard), terbaru di atas, dengan nama
+ * kabupaten. Filter opsional ['kab' => kode].
+ */
+function foto_semua(array $f = []): array
+{
+    $where = '1=1';
+    $params = [];
+    if (!empty($f['kab'])) { $where .= ' AND fp.kdkab = :kab'; $params[':kab'] = $f['kab']; }
+
+    $stmt = db()->prepare(
+        "SELECT fp.*,
+                (SELECT nmkab FROM wilayah w WHERE w.kdkab = fp.kdkab LIMIT 1) AS nmkab
+         FROM foto_plang fp
+         WHERE $where
+         ORDER BY fp.created_at DESC, fp.id DESC"
+    );
+    $stmt->execute($params);
+    return $stmt->fetchAll();
+}
+
+/**
+ * Simpan beberapa foto plang unggahan untuk satu petugas.
+ * Menerima struktur $_FILES['foto'] (multi-file). Menegakkan:
+ *  - batas FOTO_MAX_PER_PETUGAS (total existing + baru),
+ *  - tipe pada FOTO_MIME_EXT, ukuran <= FOTO_MAX_BYTES,
+ *  - validasi bahwa berkas benar-benar gambar (getimagesize).
+ *
+ * @return array{saved:int, errors:string[]}
+ */
+function simpan_foto_plang(string $kdkab, string $nama, array $files): array
+{
+    $errors = [];
+    $saved  = 0;
+
+    if (!is_dir(UPLOAD_DIR) && !@mkdir(UPLOAD_DIR, 0775, true) && !is_dir(UPLOAD_DIR)) {
+        return ['saved' => 0, 'errors' => ['Folder unggahan tidak dapat dibuat.']];
+    }
+
+    // Normalisasi $_FILES multi-file menjadi daftar entri tunggal.
+    $items = [];
+    if (isset($files['name']) && is_array($files['name'])) {
+        foreach ($files['name'] as $i => $n) {
+            if (($files['error'][$i] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+                continue; // slot kosong
+            }
+            $items[] = [
+                'name'     => $n,
+                'type'     => $files['type'][$i] ?? '',
+                'tmp_name' => $files['tmp_name'][$i] ?? '',
+                'error'    => $files['error'][$i] ?? UPLOAD_ERR_NO_FILE,
+                'size'     => $files['size'][$i] ?? 0,
+            ];
+        }
+    }
+
+    if (!$items) {
+        return ['saved' => 0, 'errors' => ['Tidak ada foto yang dipilih.']];
+    }
+
+    $sisa = FOTO_MAX_PER_PETUGAS - foto_petugas_count($kdkab, $nama);
+    if ($sisa <= 0) {
+        return ['saved' => 0, 'errors' => ['Batas ' . FOTO_MAX_PER_PETUGAS . ' foto sudah tercapai. Hapus dahulu untuk mengganti.']];
+    }
+
+    $ins = db()->prepare(
+        "INSERT INTO foto_plang (kdkab, nama_pencacah, file, w, h, created_at)
+         VALUES (:k, :n, :f, :w, :h, datetime('now','localtime'))"
+    );
+
+    foreach ($items as $idx => $it) {
+        if ($saved >= $sisa) {
+            $errors[] = 'Sebagian foto tidak disimpan: melebihi batas ' . FOTO_MAX_PER_PETUGAS . ' foto.';
+            break;
+        }
+        $label = 'Foto #' . ($idx + 1);
+        if ($it['error'] !== UPLOAD_ERR_OK || !is_uploaded_file($it['tmp_name'])) {
+            $errors[] = "$label gagal diunggah.";
+            continue;
+        }
+        if ($it['size'] > FOTO_MAX_BYTES) {
+            $errors[] = "$label melebihi " . round(FOTO_MAX_BYTES / 1048576) . ' MB.';
+            continue;
+        }
+        $info = @getimagesize($it['tmp_name']);
+        if ($info === false || !isset(FOTO_MIME_EXT[$info['mime']])) {
+            $errors[] = "$label bukan gambar yang didukung (JPG/PNG/WebP).";
+            continue;
+        }
+        $ext  = FOTO_MIME_EXT[$info['mime']];
+        $fn   = 'plang_' . $kdkab . '_' . bin2hex(random_bytes(8)) . '.' . $ext;
+        $dest = UPLOAD_DIR . '/' . $fn;
+        if (!move_uploaded_file($it['tmp_name'], $dest)) {
+            $errors[] = "$label gagal disimpan ke server.";
+            continue;
+        }
+        @chmod($dest, 0644);
+        $ins->execute([
+            ':k' => $kdkab, ':n' => $nama, ':f' => $fn,
+            ':w' => (int) $info[0], ':h' => (int) $info[1],
+        ]);
+        $saved++;
+    }
+
+    return ['saved' => $saved, 'errors' => $errors];
+}
+
+/**
+ * Hapus satu foto plang milik petugas tertentu (scope kdkab+nama) beserta berkasnya.
+ * @return bool true bila baris terhapus.
+ */
+function hapus_foto_plang(int $id, string $kdkab, string $nama): bool
+{
+    $sel = db()->prepare(
+        'SELECT file FROM foto_plang WHERE id = :id AND kdkab = :k AND nama_pencacah = :n'
+    );
+    $sel->execute([':id' => $id, ':k' => $kdkab, ':n' => $nama]);
+    $file = $sel->fetchColumn();
+    if ($file === false) {
+        return false;
+    }
+    $del = db()->prepare(
+        'DELETE FROM foto_plang WHERE id = :id AND kdkab = :k AND nama_pencacah = :n'
+    );
+    $del->execute([':id' => $id, ':k' => $kdkab, ':n' => $nama]);
+    if ($del->rowCount() > 0) {
+        $path = UPLOAD_DIR . '/' . basename((string) $file);
+        if (is_file($path)) { @unlink($path); }
+        return true;
+    }
+    return false;
 }
 
 /** Render daftar label kendala dari JSON tersimpan (+ teks "Lainnya"). */

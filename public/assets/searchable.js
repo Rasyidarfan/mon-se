@@ -6,7 +6,13 @@
     if (select.dataset.enhanced) return;
     select.dataset.enhanced = '1';
 
-    var options = Array.prototype.slice.call(select.options);
+    // Baca opsi secara LIVE setiap render agar filter eksternal (mis. by
+    // kecamatan/desa) yang menyembunyikan <option hidden> langsung tercermin.
+    function liveOptions() {
+      return Array.prototype.slice.call(select.options).filter(function (o) {
+        return !o.hidden && !o.disabled;
+      });
+    }
     var placeholder = select.dataset.placeholder || '— pilih —';
 
     // Bungkus
@@ -41,7 +47,7 @@
       menu.innerHTML = '';
       var q = (filter || '').toLowerCase().trim();
       var count = 0;
-      options.forEach(function (opt) {
+      liveOptions().forEach(function (opt) {
         if (!opt.value) return; // lewati placeholder
         var label = opt.dataset.label || opt.textContent.trim();
         if (q && label.toLowerCase().indexOf(q) === -1) return;
@@ -120,6 +126,22 @@
         close();
       }, 120);
     });
+
+    // API ringan untuk pemanggil eksternal: panggil setelah mengubah visibilitas
+    // <option>. Bila pilihan saat ini tak lagi tersedia, kosongkan input.
+    select.ssRefresh = function () {
+      var cur = select.value;
+      if (cur) {
+        var stillThere = liveOptions().some(function (o) { return o.value === cur; });
+        if (!stillThere) {
+          select.value = '';
+          input.value = '';
+          lastChosenLabel = '';
+          input.classList.remove('ss-invalid');
+        }
+      }
+      if (!menu.hidden) render(input.value === lastChosenLabel ? '' : input.value);
+    };
 
     render('');
   }
