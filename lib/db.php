@@ -9,6 +9,15 @@ function db(): PDO
         return $pdo;
     }
     $fresh = !file_exists(DB_PATH);
+
+    // DB belum ada → bangun dari seed.sqlite (master wilayah + prelist + skema).
+    // seed.sqlite di-track git; monitoring.sqlite tidak. Ini membuat server baru
+    // langsung punya data wilayah tanpa bergantung pada JSON sumber (yang mungkin
+    // tidak ada). Bila seed juga tak ada, fallback ke import JSON di bawah.
+    if ($fresh && defined('SEED_PATH') && is_file(SEED_PATH)) {
+        @copy(SEED_PATH, DB_PATH);
+    }
+
     $pdo = new PDO('sqlite:' . DB_PATH);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
@@ -16,11 +25,15 @@ function db(): PDO
     $pdo->exec('PRAGMA foreign_keys = ON');
     init_schema($pdo);
     migrate_schema($pdo);
-    if ($fresh || (int) $pdo->query('SELECT COUNT(*) FROM wilayah')->fetchColumn() === 0) {
+    // Import dari JSON HANYA bila wilayah kosong DAN file sumber tersedia.
+    // (Pada deploy dari seed, wilayah sudah terisi sehingga blok ini dilewati.)
+    if ((int) $pdo->query('SELECT COUNT(*) FROM wilayah')->fetchColumn() === 0
+        && is_file(JSON_PATH)) {
         import_wilayah($pdo);
     }
-    // Seed prelist dari muatan saat tabel progres masih kosong (mis. DB baru)
-    if ((int) $pdo->query('SELECT COUNT(*) FROM progres')->fetchColumn() === 0) {
+    // Seed prelist dari muatan saat tabel progres masih kosong DAN file muatan ada.
+    if ((int) $pdo->query('SELECT COUNT(*) FROM progres')->fetchColumn() === 0
+        && is_file(MUATAN_PATH)) {
         seed_prelist($pdo);
     }
     // Seed pemetaan Tim per kecamatan (idempoten: upsert dari tim_kec.json)

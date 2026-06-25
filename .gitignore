@@ -26,9 +26,11 @@ Homestead.json
 Homestead.yaml
 Thumbs.db
 
-# Basis data SQLite TIDAK di-track: tiap server/lokal punya datanya sendiri.
+# Basis data SQLite aktif TIDAK di-track: tiap server/lokal punya datanya sendiri.
 # Skema dibangun & dimigrasi otomatis oleh lib/db.php (atau migrate.sh saat deploy).
+# PENGECUALIAN: data/seed.sqlite (master wilayah + prelist) DI-TRACK sebagai sumber awal.
 /data/*.sqlite
+!/data/seed.sqlite
 /data/*.sqlite-shm
 /data/*.sqlite-wal
 /data/*.sqlite.bak-*

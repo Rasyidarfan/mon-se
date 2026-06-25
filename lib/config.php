@@ -10,6 +10,9 @@ const PETUGAS_PIN = '970256';
 
 // Lokasi file
 const DB_PATH     = __DIR__ . '/../data/monitoring.sqlite';
+// Seed: master wilayah + prelist + skema (di-track git). Dipakai membangun
+// monitoring.sqlite saat server fresh, menggantikan ketergantungan pada JSON sumber.
+const SEED_PATH   = __DIR__ . '/../data/seed.sqlite';
 const JSON_PATH   = __DIR__ . '/../tableConvert.com_ok842w.json';
 const MUATAN_PATH = __DIR__ . '/../muatan_per_wilayah.json';
 const TIM_PATH    = __DIR__ . '/../data/tim_kec.json';
