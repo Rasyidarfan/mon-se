@@ -7,10 +7,12 @@
     select.dataset.enhanced = '1';
 
     // Baca opsi secara LIVE setiap render agar filter eksternal (mis. by
-    // kecamatan/desa) yang menyembunyikan <option hidden> langsung tercermin.
+    // kecamatan/desa) langsung tercermin. Filter eksternal menandai opsi yang
+    // disembunyikan via atribut data-filtered="1" (lebih andal lintas-browser
+    // daripada properti .hidden pada <option> di dalam <select>).
     function liveOptions() {
       return Array.prototype.slice.call(select.options).filter(function (o) {
-        return !o.hidden && !o.disabled;
+        return o.getAttribute('data-filtered') !== '1' && !o.disabled;
       });
     }
     var placeholder = select.dataset.placeholder || '— pilih —';

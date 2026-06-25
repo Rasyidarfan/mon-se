@@ -73,8 +73,8 @@ echo layout_head('Input Progres');
         </div>
         <div class="field">
           <label>Desa/Kelurahan <span class="muted">(opsional)</span></label>
-          <select id="filterDesa">
-            <option value="">— semua desa —</option>
+          <select id="filterDesa" disabled>
+            <option value="">— pilih kecamatan dulu —</option>
             <?php foreach ($desaMap as $key => $d): ?>
               <option value="<?= e($key) ?>" data-kec="<?= e($d['kec']) ?>">
                 <?= e($d['nama']) ?>
@@ -92,12 +92,17 @@ echo layout_head('Input Progres');
               // Daftar kode kecamatan & desa milik petugas (untuk filter klien).
               $kecCodes  = array_map(fn($k) => $k['kode'], $p['kec']);
               $desaCodes = array_map(fn($d) => $d['kec'] . '|' . $d['kode'], $p['desa']);
+              // Nama desa wilayah tugas (unik) untuk ditampilkan di label.
+              $desaNames = array_values(array_unique(array_map(fn($d) => $d['nama'], $p['desa'])));
+              $desaStr   = implode(', ', $desaNames);
+              $label     = $p['nama'] . ' (' . (int) $p['jml'] . ' wilayah)'
+                         . ($desaStr !== '' ? ' — ' . $desaStr : '');
           ?>
             <option value="<?= e($p['nama']) ?>"
-                    data-label="<?= e($p['nama']) ?> (<?= (int) $p['jml'] ?> wilayah)"
+                    data-label="<?= e($label) ?>"
                     data-kec="<?= e(implode(',', $kecCodes)) ?>"
                     data-desa="<?= e(implode(',', $desaCodes)) ?>">
-              <?= e($p['nama']) ?> (<?= (int) $p['jml'] ?> wilayah)
+              <?= e($label) ?>
             </option>
           <?php endforeach; ?>
         </select>
@@ -126,38 +131,47 @@ echo layout_head('Input Progres');
   var hint     = document.getElementById('petugasHint');
   if (!selKec || !selDesa || !selPet) return;
 
-  var desaOpts = Array.prototype.slice.call(selDesa.options);
-  var petOpts  = Array.prototype.slice.call(selPet.options);
-  var total    = petOpts.filter(function (o) { return o.value; }).length;
+  var desaOpts     = Array.prototype.slice.call(selDesa.options);
+  var petOpts      = Array.prototype.slice.call(selPet.options);
+  var desaPlacehld = selDesa.options[0]; // "— pilih kecamatan dulu —"
+  var total        = petOpts.filter(function (o) { return o.value; }).length;
 
-  // Batasi pilihan desa sesuai kecamatan terpilih.
-  function syncDesaOptions() {
+  // Helper: cek apakah daftar kode (dipisah koma) mengandung satu kode.
+  function listHas(csv, code) {
+    return (',' + (csv || '') + ',').indexOf(',' + code + ',') !== -1;
+  }
+
+  // Atur dropdown desa: hanya tampilkan desa milik kecamatan terpilih.
+  // Desa nonaktif sebelum kecamatan dipilih.
+  function syncDesa() {
     var kec = selKec.value;
+    selDesa.disabled = !kec;
+    desaPlacehld.textContent = kec ? '— semua desa —' : '— pilih kecamatan dulu —';
+
     desaOpts.forEach(function (o) {
-      if (!o.value) return; // placeholder
-      o.hidden = kec ? (o.getAttribute('data-kec') !== kec) : false;
+      if (!o.value) return; // placeholder selalu ada
+      // Sembunyikan desa yang bukan milik kecamatan terpilih.
+      o.hidden = !kec || o.getAttribute('data-kec') !== kec;
     });
-    // Bila desa terpilih tak lagi cocok dengan kecamatan, reset.
+    // Bila desa terpilih tak lagi cocok, reset ke "semua desa".
     if (selDesa.value) {
       var cur = selDesa.options[selDesa.selectedIndex];
-      if (cur && cur.hidden) selDesa.value = '';
+      if (!kec || (cur && cur.hidden)) selDesa.value = '';
     }
   }
 
-  // Filter daftar petugas berdasarkan kecamatan/desa terpilih.
+  // Filter daftar petugas. Menandai opsi yang tak cocok dengan data-filtered="1"
+  // (dibaca searchable.js) — lebih andal daripada properti .hidden.
   function filterPetugas() {
     var kec  = selKec.value;
-    var desa = selDesa.value; // format "kdkec|kddesa"
+    var desa = selDesa.value; // "kdkec|kddesa"
     var shown = 0;
     petOpts.forEach(function (o) {
       if (!o.value) return; // placeholder
       var hit = true;
-      if (desa) {
-        hit = (',' + (o.getAttribute('data-desa') || '') + ',').indexOf(',' + desa + ',') !== -1;
-      } else if (kec) {
-        hit = (',' + (o.getAttribute('data-kec') || '') + ',').indexOf(',' + kec + ',') !== -1;
-      }
-      o.hidden = !hit;
+      if (desa)      hit = listHas(o.getAttribute('data-desa'), desa);
+      else if (kec)  hit = listHas(o.getAttribute('data-kec'), kec);
+      o.setAttribute('data-filtered', hit ? '0' : '1');
       if (hit) shown++;
     });
     if (hint) {
@@ -165,14 +179,13 @@ echo layout_head('Input Progres');
         ? (shown + ' dari ' + total + ' petugas cocok dengan filter.')
         : (total + ' petugas tersedia.');
     }
-    // Beri tahu searchable agar refresh & reset bila pilihan jadi tak valid.
     if (typeof selPet.ssRefresh === 'function') selPet.ssRefresh();
   }
 
-  selKec.addEventListener('change', function () { syncDesaOptions(); filterPetugas(); });
+  selKec.addEventListener('change', function () { syncDesa(); filterPetugas(); });
   selDesa.addEventListener('change', filterPetugas);
 
-  syncDesaOptions();
+  syncDesa();
   filterPetugas();
 })();
 </script>
